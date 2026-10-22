@@ -5,16 +5,46 @@ inference-only SCNet XL IHF implementation derived from
 [ZFTurbo/Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training),
 source snapshot `6fdad13`. The upstream MIT license is retained in LICENSE.
 
+Install the package and SoundFile for loading audio:
+
+```sh
+pip install -e .
+pip install soundfile
+```
+
+With the XL IHF checkpoint downloaded locally, load a stereo 44.1-kHz sound file
+and separate it into NumPy arrays:
+
 ```python
+import soundfile as sf
+import torch
+
 from stemmer import Stemmer
 
-# weights: an already-loaded XL IHF tensor state dictionary
-# audio: NumPy float32 array or CPU float32 tensor, shape [2, samples]
+weights = torch.load(
+    "model_scnet_ep_36_sdr_10.0891.ckpt",
+    map_location="cpu",
+    weights_only=True,
+)
+# Accept a raw state dictionary or the checkpoint's enclosing dictionary.
+for key in ("state", "state_dict", "model_state_dict"):
+    if key in weights:
+        weights = weights[key]
+
 stemmer = Stemmer(weights)
-stems = stemmer(audio)  # CPU float32 tensor, shape [4, 2, samples]
-drums, bass, other, vocals = stems.unbind(0)
-# stems.numpy() gives a NumPy view when desired.
+del weights  # The stemmer now owns its loaded model parameters.
+
+audio, sample_rate = sf.read("song.wav", dtype="float32", always_2d=True)
+if sample_rate != 44_100 or audio.shape[1] != 2:
+    raise ValueError("Use a stereo sound file sampled at 44,100 Hz")
+
+# SoundFile returns [samples, channels]; Stemmer accepts [channels, samples].
+stems = stemmer(audio.T).numpy()  # NumPy float32: [4, 2, samples]
+drums, bass, other, vocals = stems  # Each is [2, samples].
 ```
+
+Reuse `stemmer` for subsequent tracks to avoid loading another model. Audio loading
+happens in the calling code; the stemmer itself operates entirely on arrays/tensors.
 
 The caller supplies weights and decoded audio. There is no file I/O, checkpoint
 download, sample-rate conversion, audio encoding, CLI, or service. An enclosing
