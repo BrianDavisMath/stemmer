@@ -1,138 +1,77 @@
-# Music Source Separation Universal Training Code
+# Stemmer
 
-Repository for training models for music source separation. Repository is based on [kuielab code](https://github.com/kuielab/sdx23/tree/mdx_AB/my_submission/src) for [SDX23 challenge](https://github.com/kuielab/sdx23/tree/mdx_AB/my_submission/src). The main idea of this repository is to create training code, which is easy to modify for experiments. Brought to you by [MVSep.com](https://mvsep.com).
+One complete stereo waveform in, four complete stems out. This is a fixed,
+inference-only SCNet XL IHF implementation derived from
+[ZFTurbo/Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training),
+source snapshot `6fdad13`. The upstream MIT license is retained in LICENSE.
 
-## Models
+```python
+from stemmer import Stemmer
 
-Model can be chosen with `--model_type` arg.
-
-Available models for training:
-
-* MDX23C based on [KUIELab TFC TDF v3 architecture](https://github.com/kuielab/sdx23/). Key: `mdx23c`.
-* Demucs4HT [[Paper](https://arxiv.org/abs/2211.08553)]. Key: `htdemucs`.
-* VitLarge23 based on [Segmentation Models Pytorch](https://github.com/qubvel/segmentation_models.pytorch). Key: `segm_models`.
-* TorchSeg based on [TorchSeg module](https://github.com/qubvel/segmentation_models.pytorch). Key: `torchseg`.
-* Band Split RoFormer [[Paper](https://arxiv.org/abs/2309.02612), [Repository](https://github.com/lucidrains/BS-RoFormer)] . Key: `bs_roformer`.
-* Mel-Band RoFormer [[Paper](https://arxiv.org/abs/2310.01809), [Repository](https://github.com/lucidrains/BS-RoFormer)]. Key: `mel_band_roformer`.
-* Swin Upernet [[Paper](https://arxiv.org/abs/2103.14030)] Key: `swin_upernet`.
-* BandIt Plus [[Paper](https://arxiv.org/abs/2309.02539), [Repository](https://github.com/karnwatcharasupat/bandit)] Key: `bandit`.
-* SCNet [[Paper](https://arxiv.org/abs/2401.13276), [Official Repository](https://github.com/starrytong/SCNet), [Unofficial Repository](https://github.com/amanteur/SCNet-PyTorch)] Key: `scnet`.
-* BandIt v2 [[Paper](https://arxiv.org/abs/2407.07275), [Repository](https://github.com/kwatcharasupat/bandit-v2)] Key: `bandit_v2`.
-* Apollo [[Paper](https://arxiv.org/html/2409.08514v1), [Repository](https://github.com/JusperLee/Apollo)] Key: `apollo`.
-* BSMamba2 [[Paper](https://arxiv.org/abs/2508.14556), [Repository](https://github.com/EuiYeonKim/BSMamba2)] Key: `bs_mamba2`.
-* Conformer [[Paper](https://arxiv.org/abs/2005.08100), [Repository](https://github.com/lucidrains/conformer)] Key: `conformer`.
-* DTTNet [[Paper](https://arxiv.org/abs/2309.08684), [Repository](https://github.com/junyuchen-cjy/DTTNet-Pytorch)] Key: `dttnet`.
-* BS Conformer Key: `bs_conformer`
-* SCNet Tran Key: `scnet_tran`.
-* SCNet Masked Key: `scnet_masked`.
-
-1. **Note 1**: For `segm_models` there are many different encoders is possible. [Look here](https://github.com/qubvel/segmentation_models.pytorch#encoders-).
-2. **Note 2**: Thanks to [@lucidrains](https://github.com/lucidrains) for recreating the RoFormer models based on papers.
-3. **Note 3**: For `torchseg` gives access to more than 800 encoders from `timm` module. It's similar to `segm_models`.
-
-## How to: Train
-
-To train model you need to:
-
-1) Choose model type with option `--model_type`, including: `mdx23c`, `htdemucs`, `segm_models`, `mel_band_roformer`, `bs_roformer`.
-2) Choose location of config for model `--config_path` `<config path>`. You can find examples of configs in [configs folder](configs/). Prefixes `config_musdb18_` are examples for [MUSDB18 dataset](https://sigsep.github.io/datasets/musdb.html).
-3) If you have a check-point from the same model or from another similar model you can use it with option: `--start_check_point` `<weights path>`
-4) Choose path where to store results of training `--results_path` `<results folder path>`
-
-### Training example
-
-```bash
-python train.py \
-    --model_type mel_band_roformer \
-    --config_path configs/config_mel_band_roformer_vocals.yaml \
-    --start_check_point results/model.ckpt \
-    --results_path results/ \
-    --data_path 'datasets/dataset1' 'datasets/dataset2' \
-    --valid_path datasets/musdb18hq/test \
-    --num_workers 4 \
-    --device_ids 0
+# weights: an already-loaded XL IHF tensor state dictionary
+# audio: NumPy float32 array or CPU float32 tensor, shape [2, samples]
+stemmer = Stemmer(weights)
+stems = stemmer(audio)  # CPU float32 tensor, shape [4, 2, samples]
+drums, bass, other, vocals = stems.unbind(0)
+# stems.numpy() gives a NumPy view when desired.
 ```
 
-All training parameters are [here](https://github.com/ZFTurbo/Music-Source-Separation-Training/blob/main/utils/settings.py#L20).
+The caller supplies weights and decoded audio. There is no file I/O, checkpoint
+download, sample-rate conversion, audio encoding, CLI, or service. An enclosing
+checkpoint dictionary must be unpacked by the caller to its tensor state dictionary.
+Inputs are assumed to be 44,100 Hz; arrays cannot establish their own sample rate.
+Stereo channel-first float32 is required; mono, empty and nonfinite input is rejected.
+Input samples are never modified. Output order is drums, bass, other, vocals;
+output length exactly matches input length. Levels are not normalized or clipped.
 
-### Training with LoRA
+The architecture is fixed to the config paired with the v1.0.15 release checkpoint
+`model_scnet_ep_36_sdr_10.0891.ckpt` (SHA256
+`ac25975f0f5704f3d1a3c3c251505b7a0f417a22eafe82773440ee4f7e14b74f`).
+Weights are loaded strictly; parameter names and network computations are preserved.
 
-Look here: [LoRA training](docs/LoRA.md)
+Execution is CPU float32, one 485,100-sample window per forward, fourfold overlap
+(step 121,275), original conditional reflected outer padding and reflected/zero
+partial tails, and weight-normalized overlap-add. Edge tapers are assigned per
+window position, correcting the old batching-dependent edge policy. Complete-track
+buffers scale with track length; working inference buffers contain one window.
+There is no claim of constant memory or arbitrary track-length capacity.
 
-## How to: Inference
+The model remains loaded across calls. Use one call at a time per instance.
+The caller sets process/thread limits and protects actual inference with the
+existing external memory watchdog. No automatic backend selection, multiprocessing,
+compilation, mixed precision, tiling or alternate window settings are included.
+This is a small correctness baseline, not a port of every karaoke optimization.
 
-### Inference example
+Only NumPy and PyTorch are runtime dependencies. Install with `pip install -e .`.
+Run lightweight reconstruction tests with `python -m unittest discover -s tests -v`.
+These tests use small deterministic models; they do not establish trained-model
+speed, full-network numerical parity, or perceptual separation quality.
 
-```bash
-python inference.py \
-    --model_type mdx23c \
-    --config_path configs/config_mdx23c_musdb18.yaml \
-    --start_check_point results/last_mdx23c.ckpt \
-    --input_folder input/wavs/ \
-    --store_dir separation_results/
+## Original-versus-refactor audio verification
+
+`validation/original/` retains the original model and verbatim upstream demix
+functions as an independent development reference, with provenance hashes. It is
+excluded from the installed package. `validation/watchdog.py` retains the existing
+macOS external memory/swap watchdog. Install the harness with
+`pip install -e '.[validation]'`.
+
+```sh
+python validation/compare_audio.py --audio /path/to/stereo-44100.wav \
+  --checkpoint /path/to/model_scnet_ep_36_sdr_10.0891.ckpt \
+  --output .runtime/parity-full-track --guard-log .runtime/parity.guard.jsonl
 ```
 
-All inference parameters are [here](https://github.com/ZFTurbo/Music-Source-Separation-Training/blob/main/utils/settings.py#L130).
-Convert models to ONNX and TensorRT formats [here](https://github.com/ZFTurbo/MSS_ONNX_TensorRT).
+Omit `--seconds` to compare the entire track, or explicitly set an excerpt length.
+Both implementations use the same decoded samples, CPU FP32, checkpoint, thread
+count, 11-second windows, overlap four and single-window forwards. Every output
+sample is checked with `np.allclose(atol=2e-6, rtol=1e-4)`; each stem gets maximum
+absolute and RMS difference metrics. Raw outputs and reports are saved for review.
+A comparison passes only if both the report and final watchdog result pass. No
+normalization, fitted gain, time shift, or tolerance adjustment conceals differences.
+The watchdog requires a zero-swap starting baseline and aborts on swap growth,
+unsafe pressure, excess compression, RSS budget, unavailable telemetry or timeout.
 
-## Useful notes
-
-* All batch sizes in config are adjusted to use with single NVIDIA A6000 48GB. If you have less memory please adjust correspodningly in model config `training.batch_size` and `training.gradient_accumulation_steps`.
-* It's usually always better to start with old weights even if shapes not fully match. Code supports loading weights for not fully same models (but it must have the same architecture). Training will be much faster.
-
-## Code description
-
-* `configs/config_*.yaml` - configuration files for models
-* `models/*` - set of available models for training and inference
-* `dataset.py` - dataset which creates new samples for training
-* `gui-wx.py` - GUI interface for code
-* `inference.py` - process folder with music files and separate them
-* `train.py` - main training code for single GPU
-* `train_ddp.py` - training code for Multi GPU config. Faster than `train.py`. Use it for 2 or more GPUs.
-* `utils.py` - common functions used by train/valid
-* `valid.py` - validation of model with metrics
-* `ensemble.py` - useful script to ensemble results of different models to make results better (see [docs](docs/ensemble.md)).   
-
-## Pre-trained models
-
-Look here: [List of Pre-trained models](docs/pretrained_models.md)
-
-If you trained some good models, please, share them. You can post config and model weights [in this issue](https://github.com/ZFTurbo/Music-Source-Separation-Training/issues/1).
-
-## Dataset types
-
-Look here: [Dataset types](docs/dataset_types.md)
-
-## Augmentations
-
-Look here: [Augmentations](docs/augmentations.md)
-
-## Graphical user interface
-
-Look here: [GUI documentation](docs/gui.md) or see tutorial on [Youtube](https://youtu.be/M8JKFeN7HfU)
-
-## Package installation
-
-```bash
-pip install msst
-```
-- [Getting started](docs/getting_started.md) — getting started with MSST package
-- [Python API](docs/python_api.md) — signatures, parameters, return values, and errors.
-- [Command-line interface](docs/cli.md) — command syntax and shell examples.
-- [Compatibility](docs/compatibility.md) — model extras, devices, and audio formats.
-- [Experiments](docs/experiments.md) — portable organization and tracking.
-
-## Citation
-
-* [arxiv paper](https://arxiv.org/abs/2305.07489)
-
-```text
-@misc{solovyev2023benchmarks,
-      title={Benchmarks and leaderboards for sound demixing tasks}, 
-      author={Roman Solovyev and Alexander Stempkovskiy and Tatiana Habruseva},
-      year={2023},
-      eprint={2305.07489},
-      archivePrefix={arXiv},
-      primaryClass={cs.SD}
-}
-```
+The comparison controller never imports PyTorch or constructs a model. Original
+and refactor each run in one isolated child process, sequentially; the original
+process is reaped before the refactor launches. Process exit releases weights and
+allocator caches. The external watchdog covers the controller and its child.

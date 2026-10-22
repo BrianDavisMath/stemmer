@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/ZFTurbo/Music-Source-Separation-Training",
+  "commit": "6fdad13",
+  "sha256": {
+    "models/scnet/scnet.py": "a024c6a6b3e5eda6da29f052076772c277183dc273f144b4feca1c565030e1ed",
+    "models/scnet/separation.py": "4fdda9982003b795c3b5d964f998ca0bc416d7c232b813706a6088b16a1a1639",
+    "utils/model_utils.py": "27d87727cf23a8a091417535c748f9b4692c7b3ddb3de405db5ccde22a5512d1"
+  },
+  "extracted_functions": [
+    "demix",
+    "is_compiled_model",
+    "_get_accumulation_device",
+    "_getWindowingArray",
+    "prefer_target_instrument"
+  ]
+}
